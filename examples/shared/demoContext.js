@@ -163,6 +163,30 @@ export async function createDemoContext() {
     return camera;
   }
 
+  // Unity-Editor-style axis views: park the camera on a world axis looking at
+  // the origin, with the up vector chosen so the in-plane axes stay upright.
+  const AXIS_CAMERA_VIEWS = {
+    front: { dir: [0, 0, 1], up: [0, 1, 0] },
+    back: { dir: [0, 0, -1], up: [0, 1, 0] },
+    right: { dir: [1, 0, 0], up: [0, 1, 0] },
+    left: { dir: [-1, 0, 0], up: [0, 1, 0] },
+    top: { dir: [0, 1, 0], up: [0, 0, -1] },
+    bottom: { dir: [0, -1, 0], up: [0, 0, 1] },
+  };
+
+  function alignCameraToAxis(view) {
+    const spec = AXIS_CAMERA_VIEWS[view] ?? AXIS_CAMERA_VIEWS.front;
+    // Keep the current dolly distance, then re-center on the origin.
+    const distance = Math.max(0.001, camera.position.distanceTo(controls.target) || orthographicDistance);
+    controls.target.set(0, 0, 0);
+    camera.up.set(spec.up[0], spec.up[1], spec.up[2]);
+    camera.position.set(spec.dir[0] * distance, spec.dir[1] * distance, spec.dir[2] * distance);
+    camera.lookAt(controls.target);
+    updateCameraProjection();
+    controls.update();
+    return camera;
+  }
+
   function setCameraHome() {
     camera.up.set(0, 1, 0);
     if (camera.isOrthographicCamera) {
@@ -254,6 +278,7 @@ export async function createDemoContext() {
     environment,
     getActiveCamera,
     setCameraHome,
+    alignCameraToAxis,
     setOrthographicView,
     updateCameraProjection,
     setRasterBackdropHidden(owner, hidden) {

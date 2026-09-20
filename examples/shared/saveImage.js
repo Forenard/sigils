@@ -6,7 +6,7 @@
  * path tracing, whose blit always writes opaque alpha.
  */
 
-function makeButtonLabeler(button, signal) {
+export function makeButtonLabeler(button, signal) {
   let timer = 0;
   const idleLabel = button.textContent;
   signal?.addEventListener('abort', () => clearTimeout(timer), { once: true });
@@ -21,12 +21,12 @@ function makeButtonLabeler(button, signal) {
   };
 }
 
-function makeFilename() {
+export function makeFilename() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `sigil-${stamp}.png`;
 }
 
-function downloadBlob(blob, filename) {
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -37,7 +37,7 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function canvasImageData(source) {
+export function canvasImageData(source) {
   const w = source.width;
   const h = source.height;
   const off = document.createElement('canvas');
@@ -48,7 +48,7 @@ function canvasImageData(source) {
   return { off, ctx, data: ctx.getImageData(0, 0, w, h) };
 }
 
-function renderCoverage(renderer, scene, camera, THREE) {
+export function renderCoverage(renderer, scene, camera, THREE) {
   const cover = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     side: THREE.DoubleSide,
@@ -67,6 +67,27 @@ function renderCoverage(renderer, scene, camera, THREE) {
   scene.background = prevBg;
   renderer.autoClear = prevAutoClear;
   cover.dispose();
+}
+
+/** Clear the beauty pixels wherever the white coverage pass is empty. */
+export function compositeMatte(beauty, cover) {
+  const out = beauty.data;
+  const mask = cover.data.data;
+  for (let i = 0; i < out.data.length; i += 4) {
+    if (mask[i] < 8) {
+      out.data[i] = 0;
+      out.data[i + 1] = 0;
+      out.data[i + 2] = 0;
+      out.data[i + 3] = 0;
+    } else {
+      out.data[i + 3] = 255;
+    }
+  }
+  beauty.ctx.putImageData(out, 0, 0);
+}
+
+export function encodePng(imageData) {
+  return new Promise((resolve) => imageData.off.toBlob(resolve, 'image/png'));
 }
 
 /**
@@ -117,20 +138,8 @@ export function bindSaveImageButton(button, {
 
       renderCoverage(renderer, scene, camera, THREE);
       const cover = canvasImageData(renderer.domElement);
-      const out = beauty.data;
-      const mask = cover.data.data;
-      for (let i = 0; i < out.data.length; i += 4) {
-        if (mask[i] < 8) {
-          out.data[i] = 0;
-          out.data[i + 1] = 0;
-          out.data[i + 2] = 0;
-          out.data[i + 3] = 0;
-        } else {
-          out.data[i + 3] = 255;
-        }
-      }
-      beauty.ctx.putImageData(out, 0, 0);
-      const blob = await new Promise((resolve) => beauty.off.toBlob(resolve, 'image/png'));
+      compositeMatte(beauty, cover);
+      const blob = await encodePng(beauty);
 
       // Restore the on-screen beauty after the coverage pass overwrote it.
       scene.background = prevBg;

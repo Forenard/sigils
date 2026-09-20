@@ -66,6 +66,54 @@ export function createPathTraceRig(ctx, {
   let lastCamera = null;
   let active = false;
   let prevDamping = null;
+  let exporting = false; // resolution export owns the tracer; render() stands down
+
+  // Drive render() from rAF while a resolution export accumulates off-loop.
+  function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  /**
+   * Trace to the CURRENT renderer size (the caller resizes first) up to spp,
+   * using capture mode (full batches, sample limit ignored). Present the final
+   * accumulated frame; the caller captures the canvas between exportAt() and
+   * endExport().
+   */
+  async function exportAt({ spp, timeoutMs = 180000 } = {}) {
+    if (!active || !tracer) throw new Error('path tracer is not active');
+    exporting = true;
+    tracer.setPaused(false);
+    tracer.setCaptureMode(true);
+    const deadline = performance.now() + timeoutMs;
+    // Drive render() until the async scene/BVH rebuild lands at the export
+    // resolution (ensureSize() requests it on the first call after a resize).
+    while (!tracer.isSceneBuilt()) {
+      tracer.render();
+      await nextFrame();
+      if (!active || !tracer) throw new Error('path trace export cancelled');
+      if (performance.now() >= deadline) {
+        throw new Error('path trace export timed out building the scene');
+      }
+    }
+    const target = Math.max(1, Math.round(Number(spp) || ptState.sampleLimit || 1));
+    while (tracer.getSampleCount() < target) {
+      tracer.render();
+      await nextFrame();
+      if (!active || !tracer) throw new Error('path trace export cancelled');
+      if (performance.now() >= deadline) break; // keep what converged
+    }
+    tracer.render(); // present the final accumulation
+  }
+
+  /** Leave capture mode and hand the tracer back to the live render loop. */
+  function endExport() {
+    try {
+      tracer?.setCaptureMode(false);
+      if (tracer && active) tracer.setCamera(getCamera());
+    } finally {
+      exporting = false;
+    }
+  }
 
   // Settings persist across reloads and between Drawing's two tools.
   const PT_STORAGE_KEY = 'sigils.pathtrace.v2';
@@ -356,6 +404,7 @@ export function createPathTraceRig(ctx, {
      */
     setHold(on) {
       if (!active || !tracer) return;
+      if (exporting) return; // an export owns the tracer — don't pause mid-run
       tracer.setPaused(on === true);
     },
     /** "Reset all": path-trace settings back to stock defaults, persisted. */
@@ -409,6 +458,7 @@ export function createPathTraceRig(ctx, {
     /** True when the tracer owned this frame (skip the raster render). */
     render() {
       if (!active || !tracer) return false;
+      if (exporting) return true; // resolution export owns the canvas
       const camera = getCamera();
       if (camera !== lastCamera) {
         lastCamera = camera;
@@ -440,6 +490,12 @@ export function createPathTraceRig(ctx, {
     samples() {
       return tracer?.getSampleCount() ?? 0;
     },
+    /** SPP target used for convergence (also the export sample target). */
+    sampleLimit() {
+      return ptState.sampleLimit;
+    },
+    exportAt,
+    endExport,
     dispose() {
       // Inert from here: an async rebuild landing after unmount must not
       // re-bake a zombie mesh into the shared scene via syncSigil().

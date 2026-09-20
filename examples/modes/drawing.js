@@ -14,11 +14,12 @@ import {
   createDrawDemoState,
   chromeOptionsFromState,
 } from '../shared/sigilDefaults.js';
+import { FRAME_GUIDE_OPTIONS, FRAME_GUIDE_RATIOS } from '../shared/sigilDefaults.js';
 import { createDrawPlane } from '../shared/demoContext.js';
 import { mountControlPanel, syncControlPanelToState } from '../shared/controlPanel.js';
 import { DEMO_CONTROL_SPECS } from '../shared/demoControlSpecs.js';
 import { bindGlbExportButton } from '../shared/glbExport.js';
-import { bindSaveImageButton } from '../shared/saveImage.js';
+import { bindResolutionExport } from '../shared/resolutionExport.js';
 import { bindRightDragOrbit } from '../shared/orbit.js';
 import { bindUndoRedoKeys } from '../shared/hotkeys.js';
 import { createPhotonRig } from '../shared/photonRig.js';
@@ -74,6 +75,17 @@ export const meta = {
   label: 'Drawing',
 };
 
+/** Keyboard → ctx.alignCameraToAxis view (Unity-Editor-style axis snap). */
+const AXIS_VIEW_KEYS = {
+  f: 'front',
+  b: 'back',
+  r: 'right',
+  l: 'left',
+  t: 'top',
+  d: 'bottom',
+  h: 'home',
+};
+
 export function mount(ctx, {
   panelRoot,
   infoRoot,
@@ -102,6 +114,18 @@ export function mount(ctx, {
         <button type="button" data-draw-tool="spline" aria-pressed="false">Curve</button>
       </div>
     </div>
+    <div class="control-section view-section">
+      <div class="section-title">Camera</div>
+      <div class="view-tools" role="group" aria-label="Axis views">
+        <button type="button" data-axis-view="front" title="Front · +Z (F)">+Z</button>
+        <button type="button" data-axis-view="back" title="Back · −Z (B)">−Z</button>
+        <button type="button" data-axis-view="right" title="Right · +X (R)">+X</button>
+        <button type="button" data-axis-view="left" title="Left · −X (L)">−X</button>
+        <button type="button" data-axis-view="top" title="Top · +Y (T)">+Y</button>
+        <button type="button" data-axis-view="bottom" title="Bottom · −Y (D)">−Y</button>
+        <button type="button" data-axis-view="home" class="view-wide" title="Home view (H)">Home</button>
+      </div>
+    </div>
     <div id="controls"></div>
     <div class="buttons">
       <button id="defaults" type="button">Reset all</button>
@@ -112,6 +136,7 @@ export function mount(ctx, {
       <button id="pathtrace" type="button">Path trace</button>
       <button id="save-png" type="button">Save PNG</button>
     </div>
+    <div id="export-controls"></div>
     <div class="control-group beauty-controls">
       <div id="photon-controls" hidden></div>
       <div id="pathtrace-controls" hidden></div>
@@ -131,8 +156,17 @@ export function mount(ctx, {
       controlSpecs.push(CV_RADIUS_SPEC);
       controlSpecs.push(ACTIVE_CVS_SPEC);
     }
+    if (spec.key === 'orthographic') {
+      controlSpecs.push({ key: 'frameGuide', label: 'Frame guide', type: 'select', options: FRAME_GUIDE_OPTIONS });
+      controlSpecs.push({ key: 'frameHeight', label: 'Frame height', type: 'range', min: 0.4, max: 4, step: 0.05 });
+      controlSpecs.push({ key: 'frameThirds', label: 'Thirds', type: 'check' });
+    }
   }
   state.cvRadiusScale = clampCvRadiusScale(state.cvRadiusScale);
+  if (state.frameGuide !== 'off' && !FRAME_GUIDE_RATIOS[state.frameGuide]) state.frameGuide = 'off';
+  state.frameHeight = Number.isFinite(state.frameHeight)
+    ? Math.min(4, Math.max(0.4, state.frameHeight))
+    : 2;
 
   const controlUi = mountControlPanel(controlsRoot, controlSpecs, state, {
     onChange: (key) => {
@@ -148,6 +182,10 @@ export function mount(ctx, {
       }
       if (key === 'guides') {
         refreshGuides();
+        return;
+      }
+      if (key === 'frameGuide' || key === 'frameHeight' || key === 'frameThirds') {
+        refreshFrameGuide();
         return;
       }
       if (key === 'orthographic') {
@@ -247,6 +285,25 @@ export function mount(ctx, {
   guideGroup.renderOrder = 2;
   scene.add(guideGroup);
 
+  // Aspect-ratio frame guides (16:9, 4:3, …) centered on the origin, drawn on
+  // the plane just above the reference grid so committed sigils occlude them.
+  const frameGroup = new THREE.Group();
+  scene.add(frameGroup);
+  const frameOutlineMaterial = new THREE.LineBasicMaterial({
+    color: 0xbfbfbf,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const frameThirdsMaterial = new THREE.LineBasicMaterial({
+    color: 0xbfbfbf,
+    transparent: true,
+    opacity: 0.25,
+    depthWrite: false,
+    toneMapped: false,
+  });
+
   let draft = null; // { cvs: [[x,y],…], cvRadiusScales: number[], hover: [x,y]|null }
   let drag = null;  // { kind: 'move'|'radius', record: 'draft'|splineRecord, index, ... }
   let current = []; // in-progress freehand points
@@ -285,19 +342,22 @@ export function mount(ctx, {
   };
 
   bindGlbExportButton(ui.exportGlb, { strokes, state, renderer: computeRenderer, signal });
-  bindSaveImageButton(ui.savePng, {
+  bindResolutionExport(ui.savePng, {
     signal,
+    sectionHost: panelRoot.querySelector('#export-controls'),
     getView: () => ({ renderer, scene, camera, THREE }),
     prepareCapture: () => {
       const prev = {
         overlay: overlay.visible,
         guides: guideGroup.visible,
+        frame: frameGroup.visible,
         draft: draftMesh.visible,
         drag: dragMesh.visible,
         freehand: freehandMesh.visible,
       };
       overlay.visible = false;
       guideGroup.visible = false;
+      frameGroup.visible = false;
       draftMesh.visible = false;
       dragMesh.visible = false;
       freehandMesh.visible = false;
@@ -305,6 +365,7 @@ export function mount(ctx, {
       return () => {
         overlay.visible = prev.overlay;
         guideGroup.visible = prev.guides;
+        frameGroup.visible = prev.frame;
         draftMesh.visible = prev.draft;
         dragMesh.visible = prev.drag;
         freehandMesh.visible = prev.freehand;
@@ -319,6 +380,11 @@ export function mount(ctx, {
       }
       photon.update();
       renderer.render(scene, camera);
+    },
+    isTracing: () => pathTrace.active,
+    traceExport: {
+      begin: () => pathTrace.exportAt({ spp: pathTrace.sampleLimit() }),
+      end: () => pathTrace.endExport(),
     },
   });
   bindRightDragOrbit(ctx, {
@@ -368,6 +434,7 @@ export function mount(ctx, {
           sigilMesh.visible = (sigilMesh.geometry.getAttribute('position')?.count ?? 0) > 0;
           overlay.visible = true;
           refreshGuides();
+          refreshFrameGuide();
           refreshDraftPreview();
           refreshFreehandPreview();
         }
@@ -435,6 +502,15 @@ export function mount(ctx, {
     return (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5))) / window.innerHeight;
   }
 
+  /** Snap to an origin-centered axis view, keeping the current distance. */
+  function setAxisView(view) {
+    if (view === 'home') {
+      camera = ctx.setCameraHome();
+      return;
+    }
+    camera = ctx.alignCameraToAxis(view);
+  }
+
   function replaceChromeMaterial() {
     const previous = sigilMaterial;
     sigilMaterial = createChromeMaterial(chromeOptionsFromState(state));
@@ -463,6 +539,7 @@ export function mount(ctx, {
     photon.resetDefaults();
     pathTrace.resetDefaults();
     refreshGuides();
+    refreshFrameGuide();
     syncRadiusControl();
     refreshDraftPreview();
     refreshFreehandPreview();
@@ -865,6 +942,55 @@ export function mount(ctx, {
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material);
     guideGroup.add(line);
     return line;
+  }
+
+  function addFrameSegments(positions, material) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const line = new THREE.LineSegments(geometry, material);
+    line.frustumCulled = false;
+    frameGroup.add(line);
+  }
+
+  /** Rebuild the origin-centered aspect frame (outline, thirds, center mark). */
+  function refreshFrameGuide() {
+    emptyGroup(frameGroup);
+    const ratio = state.frameGuide === 'off' ? null : FRAME_GUIDE_RATIOS[state.frameGuide];
+    frameGroup.visible = ratio != null;
+    if (ratio == null) return;
+    const halfH = Math.max(0.05, state.frameHeight) / 2;
+    const halfW = ratio * halfH;
+    const z = -0.55;
+
+    const outline = [
+      -halfW, -halfH, z, halfW, -halfH, z,
+      halfW, -halfH, z, halfW, halfH, z,
+      halfW, halfH, z, -halfW, halfH, z,
+      -halfW, halfH, z, -halfW, -halfH, z,
+    ];
+    frameGroup.add(new THREE.LineSegments(
+      new THREE.BufferGeometry()
+        .setAttribute('position', new THREE.Float32BufferAttribute(outline, 3)),
+      frameOutlineMaterial,
+    ));
+
+    const thirds = [];
+    if (state.frameThirds) {
+      for (const f of [1 / 3, 2 / 3]) {
+        const x = -halfW + 2 * halfW * f;
+        thirds.push(x, -halfH, z, x, halfH, z);
+        const y = -halfH + 2 * halfH * f;
+        thirds.push(-halfW, y, z, halfW, y, z);
+      }
+    }
+    const cross = Math.min(halfW, halfH) * 0.06;
+    thirds.push(-cross, 0, z, cross, 0, z);
+    thirds.push(0, -cross, z, 0, cross, z);
+    frameGroup.add(new THREE.LineSegments(
+      new THREE.BufferGeometry()
+        .setAttribute('position', new THREE.Float32BufferAttribute(thirds, 3)),
+      frameThirdsMaterial,
+    ));
   }
 
   function refreshCurrentGuide() {
@@ -1739,6 +1865,10 @@ export function mount(ctx, {
       cycleActiveRecord(event.shiftKey ? -1 : 1);
     } else if (event.key === 'Enter' && draft) {
       commitDraft(false);
+    } else if (!event.metaKey && !event.ctrlKey && !event.altKey
+      && AXIS_VIEW_KEYS[event.key.toLowerCase()]) {
+      event.preventDefault();
+      setAxisView(AXIS_VIEW_KEYS[event.key.toLowerCase()]);
     } else if (event.key === 'Escape') {
       if (draft) cancelDraft();
       else if (selected) clearSelection();
@@ -1791,6 +1921,9 @@ export function mount(ctx, {
   for (const button of ui.toolButtons) {
     button.addEventListener('click', () => setDrawTool(button.dataset.drawTool), { signal });
   }
+  for (const button of panelRoot.querySelectorAll('[data-axis-view]')) {
+    button.addEventListener('click', () => setAxisView(button.dataset.axisView), { signal });
+  }
   ui.defaults.addEventListener('click', applyDrawDefaults, { signal });
   ui.undo.addEventListener('click', undoAction, { signal });
   ui.clear.addEventListener('click', () => {
@@ -1834,6 +1967,7 @@ export function mount(ctx, {
   updateToolUi();
   syncRadiusControl();
   refreshGuides();
+  refreshFrameGuide();
   if (strokes.length > 0) rebuild();
 
   let frames = 0;
@@ -1863,6 +1997,7 @@ export function mount(ctx, {
       freehandMesh.visible = false;
       overlay.visible = false;
       guideGroup.visible = false;
+      frameGroup.visible = false;
     }
     const traced = pathTrace.render(); // owns the frame while path tracing
     if (!traced) {
@@ -1914,12 +2049,16 @@ export function mount(ctx, {
     guideMaterial.dispose();
     activeGuideMaterial.dispose();
     hoverGuideMaterial.dispose();
+    frameOutlineMaterial.dispose();
+    frameThirdsMaterial.dispose();
     handleGeometry.dispose();
     radiusGuideGeometry.dispose();
     for (const m of Object.values(handleMaterials)) m.dispose();
     for (const m of Object.values(radiusGuideMaterials)) m.dispose();
     sigilMaterial.dispose();
-    scene.remove(sigilMesh, draftMesh, dragMesh, freehandMesh, overlay, guideGroup);
+    scene.remove(sigilMesh, draftMesh, dragMesh, freehandMesh, overlay, guideGroup, frameGroup);
+    for (const child of frameGroup.children) child.geometry?.dispose();
+    frameGroup.clear();
     sigilMesh.geometry.dispose();
     draftMesh.geometry.dispose();
     dragMesh.geometry.dispose();

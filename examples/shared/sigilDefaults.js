@@ -7,6 +7,30 @@
 export const DRAW_MERGE_RESOLUTION = 390;
 export const REALTIME_MERGE_RESOLUTION = 280;
 
+/** Frame-guide presets: select value → world width per unit of height. */
+export const FRAME_GUIDE_OPTIONS = [
+  ['off', 'Off'],
+  ['16-9', '16:9'],
+  ['9-16', '9:16'],
+  ['4-3', '4:3'],
+  ['3-4', '3:4'],
+  ['3-2', '3:2'],
+  ['2-3', '2:3'],
+  ['1-1', '1:1'],
+  ['2.39-1', '2.39:1'],
+];
+
+export const FRAME_GUIDE_RATIOS = {
+  '16-9': 16 / 9,
+  '9-16': 9 / 16,
+  '4-3': 4 / 3,
+  '3-4': 3 / 4,
+  '3-2': 3 / 2,
+  '2-3': 2 / 3,
+  '1-1': 1,
+  '2.39-1': 2.39,
+};
+
 /** Demo defaults matching the former draw.html commit path. */
 export const DRAW_DEMO_DEFAULTS = {
   symmetry: 1,
@@ -50,6 +74,9 @@ export const SIGIL_DEFAULTS = {
     guides: false,
     previewStripOnly: false,
     orthographic: false,
+    frameGuide: 'off',
+    frameHeight: 2,
+    frameThirds: false,
   },
   field: {
     backend: DRAW_DEMO_DEFAULTS.backend,
@@ -113,6 +140,9 @@ export function createSigilState(overrides = {}) {
     guides: overrides.guides ?? d.stroke.guides,
     previewStripOnly: overrides.previewStripOnly ?? d.stroke.previewStripOnly,
     orthographic: overrides.orthographic ?? d.stroke.orthographic,
+    frameGuide: overrides.frameGuide ?? d.stroke.frameGuide,
+    frameHeight: overrides.frameHeight ?? d.stroke.frameHeight,
+    frameThirds: overrides.frameThirds ?? d.stroke.frameThirds,
     backend: overrides.backend ?? d.field.backend,
     resolution: overrides.resolution ?? overrides.resolutionQuality ?? overrides.resolutionFast ?? d.field.resolution,
     smooth: overrides.smooth ?? d.field.smooth,

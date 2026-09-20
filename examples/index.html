@@ -198,6 +198,55 @@
         background: linear-gradient(to bottom, #bcecff, #59bfe8);
         box-shadow: inset 1px 1px 4px rgba(0,65,92,0.35), 0 0 0 1px rgba(111,208,255,0.35);
       }
+      .view-tools {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 2px;
+      }
+      .view-tools button {
+        min-width: 0;
+        padding: 6px 4px;
+        color: #272727;
+        border: 1px solid #555;
+        border-top-color: #f6f6f6;
+        border-left-color: #f6f6f6;
+        border-radius: 3px;
+        background: linear-gradient(to bottom, #e8e8e8, #aaa);
+        box-shadow: inset 1px 1px 1px #fff;
+        font: 900 9px/1 Verdana, system-ui, sans-serif;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+      }
+      .view-tools button:hover { background: linear-gradient(to bottom, #fff, #c5c5c5); }
+      .view-tools .view-wide { grid-column: 1 / -1; }
+      .export-size-row {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr) 14px minmax(0, 1fr);
+        gap: 5px;
+        align-items: center;
+        margin: 5px 0;
+      }
+      .export-size-row label {
+        color: #333;
+        font: 700 10px/1.2 var(--mono);
+        text-align: center;
+      }
+      .export-size-row input[type="number"] {
+        width: 100%;
+        min-width: 0;
+        min-height: 22px;
+        padding: 3px 6px;
+        color: #111;
+        background: linear-gradient(to bottom, #efefef, #b9b9b9);
+        border: 1px solid #777;
+        border-top-color: #f8f8f8;
+        border-left-color: #f8f8f8;
+        border-radius: 3px;
+        box-shadow: inset 1px 1px 1px rgba(255,255,255,0.8), inset -1px -1px 1px rgba(0,0,0,0.15);
+        outline: none;
+        font: 700 10px/1.2 var(--mono);
+      }
+      .export-size-row input[type="number"]:disabled { opacity: 0.55; }
       .mode-head .experimental {
         display: inline-block;
         vertical-align: 2px;
@@ -557,6 +606,7 @@
         #controls { order: 2; }
         .mesh-tools { order: 3; }
         .beauty-controls { order: 4; }
+        #export-controls { order: 5; }
         .mode-head h2 { margin-bottom: 8px; font-size: 13px; }
         .control-section { padding: 7px 8px 8px; }
         .section-title { margin-bottom: 5px; font-size: 9px; }

@@ -13,3 +13,5 @@ debug-*.png
 CLAUDE.md
 
 # local working scratch (never distributed)
+AGENTS.md
+*.code-workspace
